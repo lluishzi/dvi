@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ca">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Magatzem</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <section id="login" class="card">
+      <h1>Magatzem 1</h1>
+      <p class="meta">Introdueix la contrasenya.</p>
+      <form id="login-form" autocomplete="on">
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="Contrasenya"
+          autocomplete="current-password"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          required
+        >
+        <button type="submit" id="submit">Desxifrar</button>
+      </form>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="vault" class="card" hidden>
+      <h1 id="title">Documents</h1>
+      <p id="meta" class="meta"></p>
+      <ul id="files"></ul>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <button type="button" id="logout" class="link">Tanca la sessió</button>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

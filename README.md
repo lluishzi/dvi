@@ -1,0 +1,151 @@
+# Magatzem privat (bdpub)
+
+Magatzem estàtic d'arxius xifrats servit des de **GitHub Pages**.
+Tots els documents es protegeixen amb **AES-256-GCM** sota una sola contrasenya.
+No cal cap servidor ni cap dependència externa al navegador.
+
+## Com funciona
+
+```
+Màquina local                       GitHub Pages (públic)
+─────────────                       ────────────────────
+source/passaport.pdf  ─┐
+source/reserva.pdf   ─┤
+                       ├─► encrypt.js ──► data/*.enc ──► navegador
+PWD=la-mevapwd       ─┘                  data/salt.bin    │
+                                            │             │
+                                            ▼             ▼
+                                    ┌─────────────────────────┐
+                                    │  index.html + app.js    │
+                                    │  (demana contrasenya)   │
+                                    └─────────────────────────┘
+```
+
+1. L'script `encrypt.js` llegeix els fitxers de `source/`, els xifra amb
+   **AES-256-GCM** (clau derivada via **PBKDF2-HMAC-SHA256** amb
+   **300.000 iteracions**) i els escriu a `data/`.
+2. GitHub Pages serveix `index.html` + `app.js` + `crypto.js` + `data/`.
+3. Al navegador, l'usuari escriu la contrasenya. La pàgina:
+   - Descarrega `data/salt.bin` (públic, 16 bytes).
+   - Deriva la clau AES amb PBKDF2.
+   - Descarrega i desxifra `data/index.json.enc` → llista de fitxers.
+   - En clicar un, descarrega `data/<id>.enc`, el desxifra a memòria i
+     llança una descàrrega `Blob` al navegador.
+
+**Cap arxiu pla viatja pel servidor.** GitHub Pages només serveix blobs xifrats.
+
+## Ús
+
+### 1. Afegeix els teus documents privats
+
+```bash
+mkdir -p source
+cp ~/Documents/passaport.pdf source/
+cp ~/Documents/reserva.pdf source/
+```
+
+### 2. Xifra'ls
+
+```bash
+PWD='la-meva-contrasenya' node encrypt.js all
+```
+
+Si no passes `PWD`, l'script et la demanarà amagant l'entrada (només en
+TTY). També pots fer-ho pas a pas:
+
+```bash
+node encrypt.js init                # crea data/salt.bin
+node encrypt.js add passaport.pdf   # xifra un fitxer
+node encrypt.js rebuild-index       # regenera l'índex
+```
+
+### 3. Prova-ho en local
+
+```bash
+python3 -m http.server 8000
+# obre http://localhost:8000
+```
+
+> Per què cal un servidor? `file://` no permet `fetch()` a altres
+> fitxers per seguretat del navegador. `localhost` és considerat
+> "context segur" per la Web Crypto API.
+
+### 4. Publica
+
+```bash
+git add index.html app.js crypto.js style.css data/ README.md .gitignore
+git commit -m "actualitza magatzem"
+git push
+```
+
+A la configuració del repo a GitHub, activa **Settings → Pages → Source:
+Deploy from a branch → main / (root)**. La teva web quedarà servida a
+`https://<usuari>.github.io/<repo>/`.
+
+## Canviar la contrasenya
+
+```bash
+node encrypt.js password 'contrasenya-nova'
+```
+
+Et demanarà la contrasenya actual, verificarà que és correcta
+(desxifrant l'índex), i re-xifrarà TOTS els fitxers amb un salt nou.
+Cal tornar a fer `git push`.
+
+## Estructura del projecte
+
+```
+bdpub/
+├── index.html         # Pàgina única (entrada password + llistat)
+├── app.js             # Lògica de la interfície
+├── crypto.js          # Wrap de Web Crypto API (PBKDF2 + AES-GCM)
+├── style.css          # Estils (mode clar/fosc automàtic)
+├── encrypt.js         # Script local d'encriptació (Node.js, zero deps)
+├── README.md          # Aquest fitxer
+├── .gitignore         # Ignora source/ i node_modules
+├── data/              # Es pujarà a GitHub
+│   ├── salt.bin       # 16 bytes, NO secret
+│   ├── index.json.enc # Llista de fitxers xifrada
+│   └── <fitxer>.enc   # Documents xifrats un per un
+└── source/            # PRIVAT — mai al git
+    └── ...
+```
+
+## Format dels fitxers `.enc`
+
+```
+[ 12 bytes IV  ] [ ciphertext + 16 bytes tag GCM ]
+└─ per arxiu ──┘ └──────── dades xifrades ──────────┘
+```
+
+- **IV**: 12 bytes aleatoris, **únic per a cada xifrat** (crític per GCM).
+- **Tag GCM**: 16 bytes, autentica el ciphertext — si algú modifica
+  un byte del `.enc` al servidor o en trànsit, la desencriptació falla.
+- El `salt` (16 bytes) és a `data/salt.bin` separat. No és secret,
+  només garanteix que la mateixa contrasenya no produeixi la mateixa
+  clau si mai es rota.
+
+## Notes de seguretat
+
+- **La contrasenya és l'única cosa secreta.** Si l'oblides, no hi ha
+  recuperació — els fitxers són irrecuperables per disseny.
+- Usa una contrasenya llarga i única. Un gestor de contrasyes
+  (Bitwarden, KeePass, etc.) és recomanable.
+- **AES-GCM autentica cada fitxer.** Un `.enc` modificat al servidor
+  o en trànsit fallarà la desencriptació i veuràs un error.
+- La clau derivada viu només a la memòria del navegador mentre la
+  pestanya és oberta. Mai es desa la contrasenya en clar ni en
+  `localStorage`.
+- 300.000 iteracions PBKDF2 és un equilibri entre seguretat i
+  latència (~0.5–1 s al navegador). Per a dades molt sensibles,
+  pots apujar-ho a 600.000 editant la constant `ITER` de
+  `encrypt.js` i `PBKDF2_ITER` de `crypto.js`.
+- HTTPS és obligatori: GitHub Pages el serveix per defecte. La Web
+  Crypto API rebutja contextos no segurs.
+- GitHub Pages és **públicament accessible** — qualsevol que endevini
+  la URL pot baixar blobs xifrats. La seguretat recau 100% en la
+  contrasenya.
+
+## Llicència
+
+El codi és teu. Fes-ne el que vulguis.
