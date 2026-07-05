@@ -12,7 +12,7 @@ Màquina local                       GitHub Pages (públic)
 source/passaport.pdf  ─┐
 source/reserva.pdf   ─┤
                        ├─► encrypt.js ──► data/*.enc ──► navegador
-PWD=la-mevapwd       ─┘                  data/salt.bin    │
+VAULT_PW=la-mevapwd  ─┘                  data/salt.bin    │
                                             │             │
                                             ▼             ▼
                                     ┌─────────────────────────┐
@@ -23,7 +23,7 @@ PWD=la-mevapwd       ─┘                  data/salt.bin    │
 
 1. L'script `encrypt.js` llegeix els fitxers de `source/`, els xifra amb
    **AES-256-GCM** (clau derivada via **PBKDF2-HMAC-SHA256** amb
-   **300.000 iteracions**) i els escriu a `data/`.
+   **600.000 iteracions**) i els escriu a `data/`.
 2. GitHub Pages serveix `index.html` + `app.js` + `crypto.js` + `data/`.
 3. Al navegador, l'usuari escriu la contrasenya. La pàgina:
    - Descarrega `data/salt.bin` (públic, 16 bytes).
@@ -47,11 +47,13 @@ cp ~/Documents/reserva.pdf source/
 ### 2. Xifra'ls
 
 ```bash
-PWD='la-meva-contrasenya' node encrypt.js all
+VAULT_PW='la-meva-contrasenya' node encrypt.js all
 ```
 
-Si no passes `PWD`, l'script et la demanarà amagant l'entrada (només en
-TTY). També pots fer-ho pas a pas:
+Si no passes `VAULT_PW`, l'script et la demanarà amagant l'entrada (només en
+TTY). **No usis `PWD`**: és una variable estàndard del shell (el directori
+actual) i xifraria amb el path del directori com a contrasenya sense avisar.
+També pots fer-ho pas a pas:
 
 ```bash
 node encrypt.js init                # crea data/salt.bin
@@ -106,7 +108,7 @@ bdpub/
 ├── data/              # Es pujarà a GitHub
 │   ├── salt.bin       # 16 bytes, NO secret
 │   ├── index.json.enc # Llista de fitxers xifrada
-│   └── <fitxer>.enc   # Documents xifrats un per un
+│   └── <id-opac>.enc  # Documents xifrats; nom = HMAC (no revela res)
 └── source/            # PRIVAT — mai al git
     └── ...
 ```
@@ -127,8 +129,16 @@ bdpub/
 
 ## Notes de seguretat
 
+- **Els noms dels `.enc` són opacs** (HMAC-SHA256 de la clau derivada).
+  El nom real de cada document només existeix dins de `index.json.enc`,
+  que està xifrat. Ningú que navegui pel repo públic pot deduir què
+  conté cap fitxer a partir del seu nom.
+- **Les mides dels `.enc` són ~iguals a l'original** (+28 bytes). Si
+  vols amagar també la mida, afegeix *padding* als fitxers font.
 - **La contrasenya és l'única cosa secreta.** Si l'oblides, no hi ha
-  recuperació — els fitxers són irrecuperables per disseny.
+  recuperació — els fitxers són irrecuperables per disseny. Com que el
+  salt i tots els blobs són públics, un atacant pot fer força bruta
+  offline sense límit: usa una passphrase llarga i única.
 - Usa una contrasenya llarga i única. Un gestor de contrasyes
   (Bitwarden, KeePass, etc.) és recomanable.
 - **AES-GCM autentica cada fitxer.** Un `.enc` modificat al servidor
@@ -136,10 +146,10 @@ bdpub/
 - La clau derivada viu només a la memòria del navegador mentre la
   pestanya és oberta. Mai es desa la contrasenya en clar ni en
   `localStorage`.
-- 300.000 iteracions PBKDF2 és un equilibri entre seguretat i
-  latència (~0.5–1 s al navegador). Per a dades molt sensibles,
-  pots apujar-ho a 600.000 editant la constant `ITER` de
-  `encrypt.js` i `PBKDF2_ITER` de `crypto.js`.
+- 600.000 iteracions PBKDF2 (~1–2 s al navegador). És el valor
+  recomanat per OWASP per a PBKDF2-HMAC-SHA256. Es defineix a la
+  constant `ITER` de `encrypt.js` i `PBKDF2_ITER` de `crypto.js`;
+  els dos valors **han de coincidir sempre**.
 - HTTPS és obligatori: GitHub Pages el serveix per defecte. La Web
   Crypto API rebutja contextos no segurs.
 - GitHub Pages és **públicament accessible** — qualsevol que endevini

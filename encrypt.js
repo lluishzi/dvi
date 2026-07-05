@@ -9,15 +9,16 @@
  *   node encrypt.js all                  init (si cal) + add (tots source/*) + rebuild-index.
  *   node encrypt.js password <nova>     Re-xifra TOT amb un salt nou (canvi de contrasenya).
  *
- * La contrasenya es llegeix de la variable d'entorn PWD.
- * Si PWD no existeix i l'stdin és un TTY, es demana amb l'entrada oculta.
+ * La contrasenya es llegeix de la variable d'entorn VAULT_PW.
+ * Si VAULT_PW no existeix i l'stdin és un TTY, es demana amb l'entrada oculta.
+ * (No usem PWD: és una variable estàndard del shell = directori actual.)
  */
 
 const fs   = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const ITER      = 300_000;
+const ITER      = 600_000;
 const SALT_BYTES = 16;
 const IV_BYTES   = 12;
 const KEY_BYTES  = 32;
@@ -64,8 +65,13 @@ function listEncryptedFiles() {
   return fs.readdirSync(DATA).filter(f => f.endsWith('.enc') && f !== 'index.json.enc');
 }
 
-function idOf(filename) {
-  return path.parse(filename).name;
+// Identificador OPAC del blob xifrat. HMAC-SHA256 amb la clau derivada:
+// no revela el nom (irreversible) ni permet endevinar-lo per confirmació
+// (sense la contrasenya no es pot recalcular). Determinista: el mateix nom
+// amb la mateixa contrasenya sempre dona el mateix id, així re-xifrar
+// sobreescriu net. El nom real només viu dins de l'índex xifrat.
+function idOf(filename, key) {
+  return crypto.createHmac('sha256', key).update(filename, 'utf8').digest('hex').slice(0, 32);
 }
 
 function guessMime(ext) {
@@ -94,11 +100,11 @@ function guessMime(ext) {
   return map[ext.toLowerCase()] || 'application/octet-stream';
 }
 
-function buildIndex(salt) {
+function buildIndex(key) {
   const files = listSourceFiles();
   const seen = new Set();
   for (const f of files) {
-    const id = idOf(f);
+    const id = idOf(f, key);
     if (seen.has(id)) {
       throw new Error(`Dos fitxers comparteixen el mateix id "${id}". Canvia'ls el nom.`);
     }
@@ -111,7 +117,7 @@ function buildIndex(salt) {
     files: files.map(f => {
       const stat = fs.statSync(path.join(SOURCE, f));
       return {
-        id:   idOf(f),
+        id:   idOf(f, key),
         name: f,
         size: stat.size,
         mime: guessMime(path.extname(f)),
@@ -121,7 +127,7 @@ function buildIndex(salt) {
 }
 
 function promptPassword(label) {
-  if (process.env.PWD) return Promise.resolve(process.env.PWD);
+  if (process.env.VAULT_PW) return Promise.resolve(process.env.VAULT_PW);
   if (!process.stdin.isTTY) {
     return new Promise((resolve, reject) => {
       const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout, terminal: false });
@@ -180,7 +186,7 @@ async function cmdAdd(file) {
   const key   = deriveKey(pwd, loadSalt());
   const data  = fs.readFileSync(src);
   const enc   = encryptBuffer(data, key);
-  const id    = idOf(file);
+  const id    = idOf(file, key);
   fs.writeFileSync(path.join(DATA, id + '.enc'), enc);
   console.log(`Xifrat ${file} -> data/${id}.enc (${enc.length} bytes)`);
 }
@@ -190,7 +196,7 @@ async function cmdRebuildIndex() {
   if (!fs.existsSync(saltPath())) { console.error('Falta data/salt.bin. Executa primer: node encrypt.js init'); process.exit(1); }
   const pwd = await promptPassword('Contrasenya: ');
   const key = deriveKey(pwd, loadSalt());
-  const index = buildIndex();
+  const index = buildIndex(key);
   const enc = encryptBuffer(Buffer.from(JSON.stringify(index), 'utf8'), key);
   fs.writeFileSync(path.join(DATA, 'index.json.enc'), enc);
   console.log(`Escrit data/index.json.enc amb ${index.files.length} fitxer(s).`);
@@ -213,11 +219,11 @@ async function cmdAll() {
   for (const f of files) {
     const data = fs.readFileSync(path.join(SOURCE, f));
     const enc  = encryptBuffer(data, key);
-    const id   = idOf(f);
+    const id   = idOf(f, key);
     fs.writeFileSync(path.join(DATA, id + '.enc'), enc);
-    console.log(`  + ${f}  (${enc.length} bytes)`);
+    console.log(`  + ${f}  ->  ${id}.enc  (${enc.length} bytes)`);
   }
-  const index = buildIndex();
+  const index = buildIndex(key);
   const encIdx = encryptBuffer(Buffer.from(JSON.stringify(index), 'utf8'), key);
   fs.writeFileSync(path.join(DATA, 'index.json.enc'), encIdx);
   console.log(`Fet. data/index.json.enc conté ${index.files.length} fitxer(s).`);
@@ -251,7 +257,7 @@ async function cmdPassword(newPwd) {
 
 function usage() {
   console.log('Ús: node encrypt.js <init|add|rebuild-index|all|password> [arg]');
-  console.log('Variable d\'entorn: PWD=contrasenya  (si no, es demana per stdin)');
+  console.log('Variable d\'entorn: VAULT_PW=contrasenya  (si no, es demana per stdin)');
 }
 
 (async () => {

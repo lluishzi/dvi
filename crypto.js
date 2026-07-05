@@ -2,11 +2,11 @@
 // IMPORTANT: executar en un context segur (HTTPS o localhost).
 //
 // Paràmetres (han de coincidir amb encrypt.js):
-//   KDF:        PBKDF2-HMAC-SHA256, 300.000 iteracions
+//   KDF:        PBKDF2-HMAC-SHA256, 600.000 iteracions
 //   Xifrat:     AES-256-GCM, IV de 12 bytes, tag de 16 bytes
 //   Format:     [12 bytes IV] [ciphertext + 16 bytes tag]
 
-const PBKDF2_ITER = 300_000;
+const PBKDF2_ITER = 600_000;
 const IV_BYTES    = 12;
 
 export async function loadSalt(url = 'data/salt.bin') {
